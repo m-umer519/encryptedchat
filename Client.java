@@ -16,7 +16,9 @@ public class Client {
     private static DataInputStream in;
     private static DataOutputStream out;
     private static SecretKey sessionKey;
+    private static long sessionKeyTime;
     private static final int DH_KEY_SIZE = 2048;
+    private static final long KEY_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes
     private static final Scanner scanner = new Scanner(System.in);
 
     public static void main(String[] args) {
@@ -30,9 +32,9 @@ public class Client {
                 System.out.println("2. Login");
                 System.out.println("3. Exit");
                 System.out.print("Choose an option: ");
-                
+
                 String choice = scanner.nextLine();
-                
+
                 switch (choice) {
                     case "1":
                         out.writeUTF("register");
@@ -82,7 +84,7 @@ public class Client {
             System.out.print("Enter username: ");
             String username = scanner.nextLine();
             System.out.print("Enter password: ");
-            String password = scanner.nextLine();
+            String password = getSecurePassword();
 
             String loginData = username + "|" + password;
             String encryptedData = encrypt(loginData, sessionKey);
@@ -101,7 +103,9 @@ public class Client {
 
     private static void startChat(String username) {
         try {
-            performDHKeyExchange();
+            if (isSessionKeyExpired()) {
+                performDHKeyExchange();
+            }
             String chatKey = username + Base64.getEncoder().encodeToString(sessionKey.getEncoded());
             SecretKey messagingKey = generateAESKey(chatKey);
 
@@ -164,16 +168,21 @@ public class Client {
 
         byte[] sharedSecret = keyAgreement.generateSecret();
         sessionKey = generateAESKey(Base64.getEncoder().encodeToString(sharedSecret));
+        sessionKeyTime = System.currentTimeMillis(); // Update the key generation time
+    }
+
+    private static boolean isSessionKeyExpired() {
+        return System.currentTimeMillis() - sessionKeyTime > KEY_EXPIRY_TIME;
     }
 
     private static String getValidEmail() {
         String emailPattern = "^[A-Za-z0-9+_.-]+@(.+)$";
         Pattern pattern = Pattern.compile(emailPattern);
-        
+
         while (true) {
             System.out.print("Enter email address: ");
             String email = scanner.nextLine();
-            
+
             if (pattern.matcher(email).matches()) {
                 return email;
             }
@@ -185,7 +194,7 @@ public class Client {
         while (true) {
             System.out.print("Enter password (minimum 8 characters, must include uppercase, lowercase, number): ");
             String password = scanner.nextLine();
-            
+
             if (isPasswordSecure(password)) {
                 return password;
             }
@@ -194,7 +203,10 @@ public class Client {
     }
 
     private static boolean isPasswordSecure(String password) {
-        return password.length() >= 8;
+        return password.length() >= 8 && 
+               password.chars().anyMatch(Character::isUpperCase) &&
+               password.chars().anyMatch(Character::isLowerCase) &&
+               password.chars().anyMatch(Character::isDigit);
     }
 
     private static String encrypt(String message, SecretKey key) throws Exception {

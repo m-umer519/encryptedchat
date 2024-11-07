@@ -1,26 +1,24 @@
 import javax.crypto.*;
 import javax.crypto.spec.*;
 import java.io.*;
-import java.math.BigInteger;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
 import java.util.Scanner;
+import java.util.regex.Pattern;
 
 public class Server {
     private static final int PORT = 5000;
     private static final String CREDS_FILE = "creds.txt";
-    private static SecretKey sharedKey;
     private static final int DH_KEY_SIZE = 2048;
     private static final long KEY_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
-    private static long keyGenerationTime;
+    
 
     public static void main(String[] args) {
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
             System.out.println("Server started on port " + PORT);
-
             while (true) {
                 Socket clientSocket = serverSocket.accept();
                 new ClientHandler(clientSocket).start();
@@ -78,16 +76,20 @@ public class Server {
                 String email = parts[0];
                 String username = parts[1];
                 String password = parts[2];
-        
+
+                if (!isValidEmail(email)) {
+                    sendEncryptedMessage("Invalid email format", sessionKey);
+                    return;
+                }
+
                 if (userExists(username)) {
                     sendEncryptedMessage("Username already exists", sessionKey);
                     return;
                 }
-        
+
                 byte[] salt = generateSalt();
                 String hashedPassword = hashPassword(password, salt);
                 storeCredentials(email, username, hashedPassword, Base64.getEncoder().encodeToString(salt));
-                
                 sendEncryptedMessage("Registration successful", sessionKey);
             } catch (IOException e) {
                 e.printStackTrace();
@@ -105,7 +107,7 @@ public class Server {
                 }
             }
         }
-        
+
         private void handleLogin() {
             try {
                 performDHKeyExchange();
@@ -114,7 +116,7 @@ public class Server {
                 String[] parts = decryptedData.split("\\|");
                 String username = parts[0];
                 String password = parts[1];
-        
+
                 if (verifyCredentials(username, password)) {
                     sendEncryptedMessage("Login successful", sessionKey);
                     handleChat(username);
@@ -137,9 +139,11 @@ public class Server {
                 }
             }
         }
-        
+
         private void handleChat(String username) throws Exception {
-            performDHKeyExchange();
+            if (isSessionKeyExpired()) {
+                performDHKeyExchange(); // Regenerate key if expired
+            }
             String chatKey = username + Base64.getEncoder().encodeToString(sessionKey.getEncoded());
             SecretKey messagingKey = generateAESKey(chatKey);
 
@@ -197,12 +201,11 @@ public class Server {
 
             byte[] sharedSecret = keyAgreement.generateSecret();
             sessionKey = generateAESKey(Base64.getEncoder().encodeToString(sharedSecret));
-
-            keyGenerationTime = System.currentTimeMillis(); // Save key generation time
+            sessionKeyTime = System.currentTimeMillis(); // Update the key generation time
         }
 
         private boolean isSessionKeyExpired() {
-            return System.currentTimeMillis() - keyGenerationTime > KEY_EXPIRY_TIME;
+            return System.currentTimeMillis() - sessionKeyTime > KEY_EXPIRY_TIME;
         }
 
         private boolean userExists(String username) {
@@ -298,6 +301,12 @@ public class Server {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest(seed.getBytes(StandardCharsets.UTF_8));
             return new SecretKeySpec(hash, 0, 16, "AES");
+        }
+
+        private boolean isValidEmail(String email) {
+            String emailPattern = "^[A-Za-z0-9+_.-]+@(.+)$";
+            Pattern pattern = Pattern.compile(emailPattern);
+            return pattern.matcher(email).matches();
         }
     }
 }
