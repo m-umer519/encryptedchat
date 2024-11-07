@@ -14,6 +14,8 @@ public class Server {
     private static final String CREDS_FILE = "creds.txt";
     private static SecretKey sharedKey;
     private static final int DH_KEY_SIZE = 2048;
+    private static final long KEY_EXPIRY_TIME = 5 * 60 * 1000; // 5 minutes in milliseconds
+    private static long keyGenerationTime;
 
     public static void main(String[] args) {
         try (ServerSocket serverSocket = new ServerSocket(PORT)) {
@@ -33,6 +35,7 @@ public class Server {
         private DataInputStream in;
         private DataOutputStream out;
         private SecretKey sessionKey;
+        private long sessionKeyTime;
 
         public ClientHandler(Socket socket) {
             this.socket = socket;
@@ -194,6 +197,12 @@ public class Server {
 
             byte[] sharedSecret = keyAgreement.generateSecret();
             sessionKey = generateAESKey(Base64.getEncoder().encodeToString(sharedSecret));
+
+            keyGenerationTime = System.currentTimeMillis(); // Save key generation time
+        }
+
+        private boolean isSessionKeyExpired() {
+            return System.currentTimeMillis() - keyGenerationTime > KEY_EXPIRY_TIME;
         }
 
         private boolean userExists(String username) {
